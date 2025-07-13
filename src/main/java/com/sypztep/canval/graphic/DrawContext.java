@@ -1,229 +1,264 @@
 package com.sypztep.canval.graphic;
 
-import org.lwjgl.stb.STBTTFontinfo;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
+import com.sypztep.canval.graphic.font.CharacterInfo;
+import com.sypztep.canval.graphic.font.FontAtlas;
+import com.sypztep.canval.graphic.font.FontAtlasManager;
+import com.sypztep.canval.util.math.MatrixStack;
+import com.sypztep.canval.util.resource.FontResource;
+import org.joml.Matrix4f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
+import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-import static org.lwjgl.opengl.GL20.*;
-import static org.lwjgl.stb.STBTruetype.*;
-import static org.lwjgl.system.MemoryStack.stackPush;
+import static org.lwjgl.opengl.GL11.*;
+import static org.lwjgl.system.MemoryUtil.memAllocFloat;
+import static org.lwjgl.system.MemoryUtil.memFree;
 
 public class DrawContext {
-    private int windowWidth;
-    private int windowHeight;
+    private static final Logger LOGGER = LoggerFactory.getLogger(DrawContext.class);
+
+    private final int windowWidth;
+    private final int windowHeight;
+    private final MatrixStack matrices;
+    private boolean projectionSet = false;
+
+    // Matrix optimization
+    private final FloatBuffer matrixBuffer = memAllocFloat(16);
+    private final Matrix4f lastAppliedMatrix = new Matrix4f();
+    private boolean matrixDirty = true;
+
+    // Batched rendering for text
+    private static class TextVertex {
+        float x, y, u, v;
+        TextVertex(float x, float y, float u, float v) {
+            this.x = x; this.y = y; this.u = u; this.v = v;
+        }
+    }
+
+    private final List<TextVertex> textVertices = new ArrayList<>();
+    private FontAtlas currentTextAtlas;
 
     public DrawContext(int windowWidth, int windowHeight) {
         this.windowWidth = windowWidth;
         this.windowHeight = windowHeight;
+        this.matrices = new MatrixStack();
+        LOGGER.debug("DrawContext created: {}x{}", windowWidth, windowHeight);
     }
 
-    public void drawText(String text, float x, float y, float fontSize, STBTTFontinfo font) {
-        if (text == null || text.isEmpty()) return;
+    public MatrixStack getMatrix() {
+        return matrices;
+    }
 
-        // Set up orthographic projection
-        glMatrixMode(GL_PROJECTION);
-        glPushMatrix();
-        glLoadIdentity();
-        glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
-
-        glMatrixMode(GL_MODELVIEW);
-        glPushMatrix();
-        glLoadIdentity();
-
-        // Calculate scale based on font size
-        float scale = stbtt_ScaleForPixelHeight(font, fontSize);
-
-        try (MemoryStack stack = stackPush()) {
-            IntBuffer ascent = stack.mallocInt(1);
-            IntBuffer descent = stack.mallocInt(1);
-            IntBuffer lineGap = stack.mallocInt(1);
-
-            stbtt_GetFontVMetrics(font, ascent, descent, lineGap);
-
-            float currentX = x;
-            float currentY = y + ascent.get(0) * scale;
-
-            // Render each character
-            for (int i = 0; i < text.length(); i++) {
-                char c = text.charAt(i);
-
-                if (c == '\n') {
-                    currentX = x;
-                    currentY += (ascent.get(0) - descent.get(0) + lineGap.get(0)) * scale;
-                    continue;
-                }
-
-                renderCharacter(font, c, currentX, currentY, scale, stack);
-
-                // Advance cursor
-                IntBuffer advanceWidth = stack.mallocInt(1);
-                IntBuffer leftSideBearing = stack.mallocInt(1);
-                stbtt_GetCodepointHMetrics(font, c, advanceWidth, leftSideBearing);
-                currentX += advanceWidth.get(0) * scale;
-            }
+    public void beginFrame() {
+        if (!projectionSet) {
+            glMatrixMode(GL_PROJECTION);
+            glLoadIdentity();
+            glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
+            projectionSet = true;
         }
-
-        // Restore matrices
-        glPopMatrix();
-        glMatrixMode(GL_PROJECTION);
-        glPopMatrix();
-        glMatrixMode(GL_MODELVIEW);
+        matrixDirty = true;
     }
 
-    private void renderCharacter(STBTTFontinfo font, char c, float x, float y, float scale, MemoryStack stack) {
-        IntBuffer width = stack.mallocInt(1);
-        IntBuffer height = stack.mallocInt(1);
-        IntBuffer xOffset = stack.mallocInt(1);
-        IntBuffer yOffset = stack.mallocInt(1);
+    public void endFrame() {
+        projectionSet = false;
+        matrixDirty = true;
+    }
 
-        ByteBuffer bitmap = stbtt_GetCodepointBitmap(font, 0, scale, c, width, height, xOffset, yOffset);
+    private void applyMatrixTransform() {
+        glMatrixMode(GL_MODELVIEW);
+        Matrix4f currentMatrix = matrices.peek().getPositionMatrix();
 
-        if (bitmap != null) {
-            int w = width.get(0);
-            int h = height.get(0);
-            int xOff = xOffset.get(0);
-            int yOff = yOffset.get(0);
-
-            if (w > 0 && h > 0) {
-                // Create texture
-                int texture = glGenTextures();
-                glBindTexture(GL_TEXTURE_2D, texture);
-
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-                // Convert single channel to RGBA
-                ByteBuffer rgbaBuffer = MemoryUtil.memAlloc(w * h * 4);
-                for (int i = 0; i < w * h; i++) {
-                    byte alpha = bitmap.get(i);
-                    rgbaBuffer.put((byte) 255); // R
-                    rgbaBuffer.put((byte) 255); // G
-                    rgbaBuffer.put((byte) 255); // B
-                    rgbaBuffer.put(alpha);      // A
-                }
-                rgbaBuffer.flip();
-
-                // Upload as RGBA texture
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaBuffer);
-
-                // Free the RGBA buffer
-                MemoryUtil.memFree(rgbaBuffer);
-
-                // Save current state
-                glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT);
-
-                // Enable texture and blending
-                glEnable(GL_TEXTURE_2D);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-                // Set color to white
-                glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-
-                float x1 = x + xOff;
-                float y1 = y + yOff;
-                float x2 = x1 + w;
-                float y2 = y1 + h;
-
-                glBegin(GL_QUADS);
-                glTexCoord2f(0, 0); glVertex2f(x1, y1);
-                glTexCoord2f(1, 0); glVertex2f(x2, y1);
-                glTexCoord2f(1, 1); glVertex2f(x2, y2);
-                glTexCoord2f(0, 1); glVertex2f(x1, y2);
-                glEnd();
-
-                // Restore state
-                glPopAttrib();
-                glDeleteTextures(texture);
-            }
-
-            // Free the bitmap
-            stbtt_FreeBitmap(bitmap);
+        if (matrixDirty || !currentMatrix.equals(lastAppliedMatrix)) {
+            currentMatrix.get(matrixBuffer);
+            glLoadMatrixf(matrixBuffer);
+            lastAppliedMatrix.set(currentMatrix);
+            matrixDirty = false;
         }
     }
 
-    public void drawCenteredText(String text, float fontSize, STBTTFontinfo font) {
+    public void markMatrixDirty() {
+        matrixDirty = true;
+    }
+
+    public void drawText(String text, float x, float y, float fontSize, FontResource font) {
+        drawText(text, x, y, fontSize, font, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    public void drawText(String text, float x, float y, float fontSize, FontResource font, float r, float g, float b, float a) {
         if (text == null || text.isEmpty()) return;
 
-        // Calculate text dimensions
+        applyMatrixTransform();
+
+        FontAtlas atlas = FontAtlasManager.getInstance().getAtlas(font, fontSize);
+
+        textVertices.clear();
+        currentTextAtlas = atlas;
+
+        float currentX = x;
+        float currentY = y + atlas.getAscent();
+
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+
+            if (c == '\n') {
+                currentX = x;
+                currentY += atlas.getLineHeight();
+                continue;
+            }
+
+            CharacterInfo charInfo = atlas.getCharacter(c);
+
+            if (charInfo.width() > 0 && charInfo.height() > 0) {
+                float x1 = currentX + charInfo.xOffset();
+                float y1 = currentY + charInfo.yOffset();
+                float x2 = x1 + charInfo.width();
+                float y2 = y1 + charInfo.height();
+
+                textVertices.add(new TextVertex(x1, y1, charInfo.u1(), charInfo.v1())); // Top-left
+                textVertices.add(new TextVertex(x2, y1, charInfo.u2(), charInfo.v1())); // Top-right
+                textVertices.add(new TextVertex(x2, y2, charInfo.u2(), charInfo.v2())); // Bottom-right
+                textVertices.add(new TextVertex(x1, y2, charInfo.u1(), charInfo.v2())); // Bottom-left
+            }
+
+            currentX += charInfo.advance();
+        }
+
+        renderBatchedText(r, g, b, a);
+    }
+
+    public void drawOneByOneText(String text, int visibleCharCount, float x, float y, float fontSize, FontResource font, float r, float g, float b, float a) {
+        if (text == null || text.isEmpty() || visibleCharCount <= 0) return;
+
+        applyMatrixTransform();
+
+        FontAtlas atlas = FontAtlasManager.getInstance().getAtlas(font, fontSize);
+
+        textVertices.clear();
+        currentTextAtlas = atlas;
+
+        float currentX = x;
+        float currentY = y + atlas.getAscent();
+        int charCount = 0;
+
+        for (int i = 0; i < text.length() && charCount < visibleCharCount; i++) {
+            char c = text.charAt(i);
+
+            if (c == '\n') {
+                currentX = x;
+                currentY += atlas.getLineHeight();
+                continue;
+            }
+
+            CharacterInfo charInfo = atlas.getCharacter(c);
+
+            if (charInfo.width() > 0 && charInfo.height() > 0) {
+                float x1 = currentX + charInfo.xOffset();
+                float y1 = currentY + charInfo.yOffset();
+                float x2 = x1 + charInfo.width();
+                float y2 = y1 + charInfo.height();
+
+                textVertices.add(new TextVertex(x1, y1, charInfo.u1(), charInfo.v1()));
+                textVertices.add(new TextVertex(x2, y1, charInfo.u2(), charInfo.v1()));
+                textVertices.add(new TextVertex(x2, y2, charInfo.u2(), charInfo.v2()));
+                textVertices.add(new TextVertex(x1, y2, charInfo.u1(), charInfo.v2()));
+            }
+
+            currentX += charInfo.advance();
+            charCount++;
+        }
+
+        renderBatchedText(r, g, b, a);
+    }
+
+    private void renderBatchedText(float r, float g, float b, float a) {
+        if (textVertices.isEmpty()) return;
+
+        // ONE texture bind for entire string
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, currentTextAtlas.getAtlasTextureId());
+        glColor4f(r, g, b, a);
+
+        // ONE draw call for entire string
+        glBegin(GL_QUADS);
+        for (TextVertex vertex : textVertices) {
+            glTexCoord2f(vertex.u, vertex.v);
+            glVertex2f(vertex.x, vertex.y);
+        }
+        glEnd();
+
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_BLEND);
+    }
+
+    public void drawCenteredText(String text, float fontSize, FontResource font) {
+        drawCenteredText(text, fontSize, font, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    public void drawCenteredText(String text, float fontSize, FontResource font, float r, float g, float b, float a) {
+        if (text == null || text.isEmpty()) return;
+
         float textWidth = getTextWidth(text, fontSize, font);
-        float textHeight = fontSize;
-
-        // Center the text
         float x = (windowWidth - textWidth) / 2.0f;
-        float y = (windowHeight - textHeight) / 2.0f;
+        float y = (windowHeight - fontSize) / 2.0f;
 
-        drawText(text, x, y, fontSize, font);
+        drawText(text, x, y, fontSize, font, r, g, b, a);
     }
 
-    private float getTextWidth(String text, float fontSize, STBTTFontinfo font) {
-        float scale = stbtt_ScaleForPixelHeight(font, fontSize);
-        float width = 0;
+    private final Map<String, Float> textWidthCache = new HashMap<>();
 
-        try (MemoryStack stack = stackPush()) {
-            IntBuffer advanceWidth = stack.mallocInt(1);
-            IntBuffer leftSideBearing = stack.mallocInt(1);
+    public float getTextWidth(String text, float fontSize, FontResource font) {
+        if (text == null || text.isEmpty()) return 0;
+
+        String cacheKey = text + "_" + fontSize + "_" + font.id();
+        return textWidthCache.computeIfAbsent(cacheKey, k -> {
+            FontAtlas atlas = FontAtlasManager.getInstance().getAtlas(font, fontSize);
+            float width = 0;
 
             for (int i = 0; i < text.length(); i++) {
                 char c = text.charAt(i);
-                if (c == '\n') break; // Only measure first line for centering
+                if (c == '\n') break;
 
-                stbtt_GetCodepointHMetrics(font, c, advanceWidth, leftSideBearing);
-                width += advanceWidth.get(0) * scale;
+                CharacterInfo charInfo = atlas.getCharacter(c);
+                width += charInfo.advance();
             }
-        }
 
-        return width;
+            return width;
+        });
     }
+
     public void drawRect(float x, float y, float width, float height, float r, float g, float b, float a) {
-        // Set up orthographic projection
-        glMatrixMode(GL_PROJECTION);
-        glPushMatrix();
-        glLoadIdentity();
-        glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
+        applyMatrixTransform();
 
-        glMatrixMode(GL_MODELVIEW);
-        glPushMatrix();
-        glLoadIdentity();
-
-        // Save current state
-        glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT);
-
-        // Disable texture and enable blending for transparency
         glDisable(GL_TEXTURE_2D);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        // Set color
         glColor4f(r, g, b, a);
 
-        // Draw rectangle
         glBegin(GL_QUADS);
-        glVertex2f(x, y);                    // Top-left
-        glVertex2f(x + width, y);            // Top-right
-        glVertex2f(x + width, y + height);   // Bottom-right
-        glVertex2f(x, y + height);           // Bottom-left
+        glVertex2f(x, y);
+        glVertex2f(x + width, y);
+        glVertex2f(x + width, y + height);
+        glVertex2f(x, y + height);
         glEnd();
 
-        // Restore state
-        glPopAttrib();
-
-        // Restore matrices
-        glPopMatrix();
-        glMatrixMode(GL_PROJECTION);
-        glPopMatrix();
-        glMatrixMode(GL_MODELVIEW);
+        glDisable(GL_BLEND);
     }
 
-    /**
-     * Draw a solid colored rectangle with RGB (fully opaque)
-     */
-    public void drawRect(float x, float y, float width, float height, float r, float g, float b) {
-        drawRect(x, y, width, height, r, g, b, 1.0f);
+    public void cleanup() {
+        LOGGER.info("Cleaning up DrawContext...");
+        FontAtlasManager.getInstance().cleanup();
+        textWidthCache.clear();
+
+        if (matrixBuffer != null) memFree(matrixBuffer);
+
+
+        LOGGER.debug("DrawContext cleaned up successfully");
     }
 }
