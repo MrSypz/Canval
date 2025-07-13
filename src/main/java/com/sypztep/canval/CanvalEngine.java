@@ -2,6 +2,7 @@ package com.sypztep.canval;
 
 import com.sypztep.canval.graphic.DrawContext;
 import com.sypztep.canval.init.Fonts;
+import com.sypztep.canval.init.Textures;
 import com.sypztep.canval.util.ResourceManager;
 import com.sypztep.canval.util.identifier.Registries;
 import org.slf4j.Logger;
@@ -145,6 +146,8 @@ public final class CanvalEngine {
         try {
             // Check OpenGL capabilities
             checkOpenGLCapabilities();
+            // NOW bind resources to OpenGL
+            canval.initializeOpenGL();
 
             // Create drawing context (needs OpenGL)
             drawContext = new DrawContext(
@@ -192,7 +195,9 @@ public final class CanvalEngine {
      */
     private void render() {
         try {
-            drawContext.drawCenteredText("สวัสดี World", 48.0f, CanvalConfig.getDefaultFont());
+            drawContext.drawTexture(Textures.TEST_RGB.id(), 50, 50, 200, 200);
+            drawContext.drawText("สวัสดี World", 50, 600, 48.0f, CanvalConfig.getDefaultFont());
+
         } catch (Exception e) {
             LOGGER.error("Rendering error", e);
         }
