@@ -1,7 +1,9 @@
 plugins {
     id 'java'
+    id 'application'
+    id 'org.beryx.jlink' version '3.0.1'  // For native packaging
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
-
 group = 'com.sypztep'
 version = '1.0-SNAPSHOT'
 description = 'Test LWJGL stuff'
@@ -61,21 +63,29 @@ dependencies {
     implementation 'org.joml:joml:1.10.5'
 
 }
-
-tasks.register('runCanval', JavaExec) {
-    group = 'application'
-    description = 'Run the Canval Engine'
-    classpath = sourceSets.main.runtimeClasspath
+application {
     mainClass = 'com.sypztep.canval.Main'
-    jvmArgs = [
-            '--enable-preview',
-            '-Djava.awt.headless=false',
-            '-Dorg.lwjgl.util.Debug=false',
-            '-XX:+UseG1GC',
-            '-XX:+UseStringDeduplication'
-    ]
 }
-
 test {
     useJUnitPlatform()
+}
+
+// Add to build.gradle
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': application.mainClass
+    }
+    from {
+        configurations.runtimeClasspath.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+}
+
+shadowJar {
+    archiveClassifier = ''
+    manifest {
+        attributes 'Main-Class': application.mainClass
+    }
 }
