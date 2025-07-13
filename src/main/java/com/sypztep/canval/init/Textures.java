@@ -32,7 +32,8 @@ public final class Textures {
             throw e;
         }
     }
-
+    //TODO: make it handle by other task maybe CanvalClient for GL Stuff
+    // 13/7/2025 11:51 GMT +7
     public static void bindTextures() {
         if (ENTRIES.isEmpty()) {
             LOGGER.info("No textures to bind");
