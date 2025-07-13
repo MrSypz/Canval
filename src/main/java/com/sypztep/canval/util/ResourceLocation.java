@@ -1,25 +1,16 @@
 package com.sypztep.canval.util;
 
 
-public record ResourceLocation(String namespace, String path) {
+public record ResourceLocation(String path) {
 
     public ResourceLocation {
-        if (namespace == null || namespace.isBlank())
-            namespace = "canval";
-        if (path == null || path.isBlank())
+        if (path == null || path.isBlank()) {
             throw new IllegalArgumentException("Path cannot be null or blank");
-    }
-
-    public ResourceLocation(String path) {
-        this("canval", path);
+        }
     }
 
     public static ResourceLocation of(String path) {
         return new ResourceLocation(path);
-    }
-
-    public static ResourceLocation of(String namespace, String path) {
-        return new ResourceLocation(namespace, path);
     }
 
     public String getExtension() {
@@ -34,6 +25,6 @@ public record ResourceLocation(String namespace, String path) {
 
     @Override
     public String toString() {
-        return namespace + ":" + path;
+        return path;
     }
 }

@@ -6,11 +6,9 @@ import com.sypztep.canval.util.resource.SoundResource;
 import com.sypztep.canval.util.resource.TextureResource;
 
 public final class Registries {
-    public static final Registry<FontResource> FONT = new Registry<>(ResourceLocation.of("font"), FontResource.class);
-
-    public static final Registry<TextureResource> TEXTURE = new Registry<>(ResourceLocation.of("texture"), TextureResource.class);
-
-    public static final Registry<SoundResource> SOUND = new Registry<>(ResourceLocation.of("sound"), SoundResource.class);
+    public static final Registry<FontResource> FONT = new Registry<>("font", FontResource.class);
+    public static final Registry<TextureResource> TEXTURE = new Registry<>("texture", TextureResource.class);
+    public static final Registry<SoundResource> SOUND = new Registry<>("sound", SoundResource.class);
 
     public static void cleanup() {
         FONT.clear();

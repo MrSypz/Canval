@@ -10,10 +10,10 @@ public class Registry<T> {
     private final Map<ResourceLocation, T> entries = new HashMap<>();
     private final Map<ResourceLocation, RegistryEntry<T>> references = new HashMap<>();
     private final Class<T> type;
-    private final ResourceLocation registryId;
+    private final String registryName;
 
-    public Registry(ResourceLocation registryId, Class<T> type) {
-        this.registryId = registryId;
+    public Registry(String registryName, Class<T> type) {
+        this.registryName = registryName;
         this.type = type;
     }
 
@@ -31,7 +31,7 @@ public class Registry<T> {
         return register(registry, ResourceLocation.of(id), entry);
     }
 
-    // Minecraft-style reference registration
+    // Reference registration
     public static <T> RegistryEntry<T> registerReference(Registry<T> registry, ResourceLocation id, T entry) {
         register(registry, id, entry);
         RegistryEntry<T> reference = new RegistryEntry<>(registry, id, entry);
@@ -75,8 +75,8 @@ public class Registry<T> {
         return entries.keySet();
     }
 
-    public ResourceLocation getId() {
-        return registryId;
+    public String getRegistryName() {
+        return registryName;
     }
 
     public void clear() {
