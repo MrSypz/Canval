@@ -1,0 +1,75 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.sypztep'
+version = '1.0-SNAPSHOT'
+description = 'Test LWJGL stuff'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+repositories {
+    mavenCentral()
+}
+
+project.ext.lwjglVersion = "3.3.6"
+
+switch (org.gradle.internal.os.OperatingSystem.current()) {
+    case org.gradle.internal.os.OperatingSystem.LINUX:
+        project.ext.lwjglNatives = "natives-linux"
+        def osArch = System.getProperty("os.arch")
+        if (osArch.startsWith("arm") || osArch.startsWith("aarch64")) {
+            project.ext.lwjglNatives += osArch.contains("64") || osArch.startsWith("armv8") ? "-arm64" : "-arm32"
+        } else if (osArch.startsWith("ppc")) {
+            project.ext.lwjglNatives += "-ppc64le"
+        } else if (osArch.startsWith("riscv")) {
+            project.ext.lwjglNatives += "-riscv64"
+        }
+        break
+    case org.gradle.internal.os.OperatingSystem.MAC_OS:
+        project.ext.lwjglNatives = System.getProperty("os.arch").startsWith("aarch64") ?
+                "natives-macos-arm64" : "natives-macos"
+        break
+    case org.gradle.internal.os.OperatingSystem.WINDOWS:
+        project.ext.lwjglNatives = "natives-windows"
+        break
+}
+
+dependencies {
+    // LWJGL Core with BOM for version management
+    implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+
+    implementation "org.lwjgl:lwjgl"
+    implementation "org.lwjgl:lwjgl-glfw"
+    implementation "org.lwjgl:lwjgl-openal"
+    implementation "org.lwjgl:lwjgl-opengl"
+    implementation "org.lwjgl:lwjgl-stb"
+
+    // LWJGL Natives
+    implementation "org.lwjgl:lwjgl::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-glfw::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-openal::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-opengl::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-stb::$lwjglNatives"
+}
+
+tasks.register('runCanval', JavaExec) {
+    group = 'application'
+    description = 'Run the Canval Engine'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.sypztep.canval.Main'
+    jvmArgs = [
+            '--enable-preview',
+            '-Djava.awt.headless=false',
+            '-Dorg.lwjgl.util.Debug=false',
+            '-XX:+UseG1GC',
+            '-XX:+UseStringDeduplication'
+    ]
+}
+
+test {
+    useJUnitPlatform()
+}
