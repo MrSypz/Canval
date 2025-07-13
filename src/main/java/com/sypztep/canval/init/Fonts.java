@@ -6,13 +6,15 @@ import com.sypztep.canval.util.identifier.Registries;
 import com.sypztep.canval.util.identifier.Registry;
 import com.sypztep.canval.util.identifier.RegistryEntry;
 import com.sypztep.canval.util.resource.FontResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 
 public final class Fonts {
     public Fonts() {
     }
-
+    private static final Logger LOGGER = LoggerFactory.getLogger(Fonts.class);
     public static final ArrayList<RegistryEntry<FontResource>> ENTRIES = new ArrayList<>();
 
     public static final RegistryEntry<FontResource> DEFAULT_FONT = register("thai", ResourceManager.createFont(ResourceLocation.of("NotoSansThai-Regular.ttf"),
@@ -25,6 +27,6 @@ public final class Fonts {
     }
 
     public static void init() {
-        System.out.println("Fonts initialized: " + ENTRIES.size() + " fonts registered");
+        LOGGER.info("Fonts initialized: {} fonts registered", ENTRIES.size());
     }
 }
