@@ -1,6 +1,7 @@
 package com.sypztep.canval;
 
 import com.sypztep.canval.graphic.DrawContext;
+import com.sypztep.canval.init.Fonts;
 import com.sypztep.canval.util.ResourceManager;
 import org.lwjgl.Version;
 import org.lwjgl.glfw.GLFWErrorCallback;
@@ -9,125 +10,148 @@ import org.lwjgl.opengl.GL;
 import org.lwjgl.system.MemoryStack;
 
 import java.nio.IntBuffer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.lwjgl.glfw.Callbacks.glfwFreeCallbacks;
 import static org.lwjgl.glfw.GLFW.*;
-import static org.lwjgl.glfw.GLFW.glfwPollEvents;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.system.MemoryUtil.NULL;
 
 public class CarvalEngine {
-    // The window handle
     private long window;
-    private int windowheight = 720, windowwidth = 1080;
-    // Initializer instance
-    private final Carval canaval = new Carval();
-
-    // Draw context for rendering
+    private final Carval carval = new Carval();
     private DrawContext drawContext;
+
+    // Threading for resource loading
+    private final ExecutorService resourceLoader = Executors.newCachedThreadPool();
+    private CompletableFuture<Void> preloadFuture;
+    private volatile boolean resourcesLoaded = false;
 
     public void run() {
         System.out.println("Hello LWJGL " + Version.getVersion() + "!");
 
+        // Start preloading resources in background BEFORE any OpenGL setup
+        startPreloading();
+
+        // Initialize OpenGL context
         init();
-        preloadInit();
+
+        // Wait for resources to finish loading
+        waitForPreloading();
+
+        // Initialize things that need OpenGL context
+        postLoadInit();
+
+        // Main loop
         loop();
 
         // Cleanup
-        ResourceManager.cleanup();
-
-        // Free the window callbacks and destroy the window
-        glfwFreeCallbacks(window);
-        glfwDestroyWindow(window);
-
-        // Terminate GLFW and free the error callback
-        glfwTerminate();
-        glfwSetErrorCallback(null).free();
+        cleanup();
     }
 
-    private void preloadInit() {
-        // Initialize the Canaval mod
-        canaval.initialize();
+    /**
+     * Start loading resources in background threads BEFORE OpenGL initialization
+     */
+    private void startPreloading() {
+        System.out.println("Starting resource preloading...");
 
-        // Create draw context
-        drawContext = new DrawContext(windowwidth, windowheight);
+        preloadFuture = CompletableFuture.runAsync(() -> {
+            try {
+                carval.initialize();
+                System.out.println("Resource preloading completed!");
+                resourcesLoaded = true;
+            } catch (Exception e) {
+                System.err.println("Error during preloading: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }, resourceLoader);
+    }
+
+    /**
+     * Wait for preloading to complete
+     */
+    private void waitForPreloading() {
+        try {
+            System.out.println("Waiting for resource preloading to complete...");
+            preloadFuture.get(); // Block until preloading is done
+            System.out.println("All resources loaded!");
+        } catch (Exception e) {
+            System.err.println("Error waiting for preloading: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Initialize things that require OpenGL context (after preloading)
+     */
+    private void postLoadInit() {
+        drawContext = new DrawContext(CanvalConfig.getDefaultWindowWidth(), CanvalConfig.getDefaultWindowHeight());
     }
 
     private void init() {
-        // Setup an error callback. The default implementation
-        // will print the error message in System.err.
         GLFWErrorCallback.createPrint(System.err).set();
 
-        // Initialize GLFW. Most GLFW functions will not work before doing this.
         if (!glfwInit())
             throw new IllegalStateException("Unable to initialize GLFW");
 
-        // Configure GLFW
-        glfwDefaultWindowHints(); // optional, the current window hints are already the default
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); // the window will stay hidden after creation
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // the window will be resizable
+        glfwDefaultWindowHints();
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-        // Create the window
-        window = glfwCreateWindow(windowwidth, windowheight, "Canaval", NULL, NULL);
+        window = glfwCreateWindow(CanvalConfig.getDefaultWindowWidth(), CanvalConfig.getDefaultWindowHeight(), CanvalConfig.getDefaultWindowTitle(), NULL, NULL);
         if (window == NULL)
             throw new RuntimeException("Failed to create the GLFW window");
 
-        // Setup a key callback. It will be called every time a key is pressed, repeated or released.
+        // Setup key callback
         glfwSetKeyCallback(window, (window, key, scancode, action, mods) -> {
             if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE)
-                glfwSetWindowShouldClose(window, true); // We will detect this in the rendering loop
+                glfwSetWindowShouldClose(window, true);
         });
 
-        // Get the thread stack and push a new frame
         try (MemoryStack stack = stackPush()) {
-            IntBuffer pWidth = stack.mallocInt(1); // int*
-            IntBuffer pHeight = stack.mallocInt(1); // int*
-
-            // Get the window size passed to glfwCreateWindow
+            IntBuffer pWidth = stack.mallocInt(1);
+            IntBuffer pHeight = stack.mallocInt(1);
             glfwGetWindowSize(window, pWidth, pHeight);
-
-            // Get the resolution of the primary monitor
             GLFWVidMode vidmode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-
-            // Center the window
             glfwSetWindowPos(
                     window,
                     (vidmode.width() - pWidth.get(0)) / 2,
                     (vidmode.height() - pHeight.get(0)) / 2
             );
-        } // the stack frame is popped automatically
+        }
 
-        // Make the OpenGL context current
         glfwMakeContextCurrent(window);
-        // Enable v-sync
         glfwSwapInterval(1);
-
-        // Make the window visible
         glfwShowWindow(window);
     }
 
     private void loop() {
-        // This line is critical for LWJGL's interoperation with GLFW's
-        // OpenGL context, or any context that is managed externally.
-        // LWJGL detects the context that is current in the current thread,
-        // creates the GLCapabilities instance and makes the OpenGL
-        // bindings available for use.
         GL.createCapabilities();
 
-        // Run the rendering loop until the user has attempted to close
-        // the window or has pressed the ESCAPE key.
         while (!glfwWindowShouldClose(window)) {
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // clear the framebuffer
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            // Draw "Hello World" in the center of the screen
-            drawContext.drawCenteredText("สวัสดี World 你好", 48.0f, Carval.getThaiFont());
-            drawContext.drawRect(10, 10, 50, 30, 0.0f, 1.0f, 0.0f); // Green rectangle
-            glfwSwapBuffers(window); // swap the color buffers
+            if (resourcesLoaded) {
+                drawContext.drawCenteredText("สวัสดี World", 48.0f, Fonts.DEFAULT_FONT.value().fontInfo());
+                drawContext.drawRect(10, 10, 50, 30, 0.0f, 1.0f, 0.0f);
+            } else {
+                drawContext.drawCenteredText("Loading...", 24.0f, null);
+            }
 
-            // Poll for window events. The key callback above will only be
-            // invoked during this call.
+            glfwSwapBuffers(window);
             glfwPollEvents();
         }
+    }
+
+    private void cleanup() {
+        ResourceManager.cleanup();
+        resourceLoader.shutdown();
+        glfwFreeCallbacks(window);
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        glfwSetErrorCallback(null).free();
     }
 }

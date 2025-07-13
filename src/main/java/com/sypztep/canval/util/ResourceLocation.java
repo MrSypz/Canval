@@ -1,36 +1,39 @@
 package com.sypztep.canval.util;
 
 
-public class ResourceLocation {
-    private final String path;
+public record ResourceLocation(String namespace, String path) {
 
-    private ResourceLocation(String path) {
-        this.path = path;
+    public ResourceLocation {
+        if (namespace == null || namespace.isBlank())
+            namespace = "canval";
+        if (path == null || path.isBlank())
+            throw new IllegalArgumentException("Path cannot be null or blank");
     }
 
-    public static ResourceLocation id(String path) {
+    public ResourceLocation(String path) {
+        this("canval", path);
+    }
+
+    public static ResourceLocation of(String path) {
         return new ResourceLocation(path);
     }
 
-    public String getPath() {
-        return path;
+    public static ResourceLocation of(String namespace, String path) {
+        return new ResourceLocation(namespace, path);
+    }
+
+    public String getExtension() {
+        int lastDot = path.lastIndexOf('.');
+        return lastDot != -1 ? path.substring(lastDot + 1).toLowerCase() : "";
+    }
+
+    public String getFileName() {
+        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        return lastSlash != -1 ? path.substring(lastSlash + 1) : path;
     }
 
     @Override
     public String toString() {
-        return path;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        ResourceLocation that = (ResourceLocation) obj;
-        return path.equals(that.path);
-    }
-
-    @Override
-    public int hashCode() {
-        return path.hashCode();
+        return namespace + ":" + path;
     }
 }

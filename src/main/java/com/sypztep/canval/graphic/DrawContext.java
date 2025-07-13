@@ -180,17 +180,6 @@ public class DrawContext {
 
         return width;
     }
-    /**
-     * Draw a solid colored rectangle
-     * @param x X position
-     * @param y Y position
-     * @param width Width of rectangle
-     * @param height Height of rectangle
-     * @param r Red component (0.0 to 1.0)
-     * @param g Green component (0.0 to 1.0)
-     * @param b Blue component (0.0 to 1.0)
-     * @param a Alpha component (0.0 to 1.0)
-     */
     public void drawRect(float x, float y, float width, float height, float r, float g, float b, float a) {
         // Set up orthographic projection
         glMatrixMode(GL_PROJECTION);
