@@ -99,12 +99,21 @@ public class FontAtlas {
             IntBuffer xOffset = stack.mallocInt(1);
             IntBuffer yOffset = stack.mallocInt(1);
 
+            // Get advance width first (works for all characters including whitespace)
+            IntBuffer advanceWidth = stack.mallocInt(1);
+            IntBuffer leftSideBearing = stack.mallocInt(1);
+            stbtt_GetCodepointHMetrics(fontInfo, c, advanceWidth, leftSideBearing);
+            float advance = advanceWidth.get(0) * scale;
+
             // Get character bitmap
             ByteBuffer bitmap = stbtt_GetCodepointBitmap(fontInfo, 0, scale, c, width, height, xOffset, yOffset);
 
             if (bitmap == null) {
-                LOGGER.warn("Failed to create bitmap for character: {}", c);
-                return new CharacterInfo(0, 0, 0, 0, 0, 0, 0, 0, 0);
+                // This is normal for whitespace characters (space, tab, etc.)
+                // They have advance width but no visual representation
+                LOGGER.debug("Character '{}' (code: {}) has no bitmap (likely whitespace)",
+                        c == ' ' ? "SPACE" : String.valueOf(c), (int)c);
+                return new CharacterInfo(0, 0, 0, 0, 0, 0, 0, 0, advance);
             }
 
             int w = width.get(0);
@@ -112,14 +121,8 @@ public class FontAtlas {
             int xOff = xOffset.get(0);
             int yOff = yOffset.get(0);
 
-            // Get advance width
-            IntBuffer advanceWidth = stack.mallocInt(1);
-            IntBuffer leftSideBearing = stack.mallocInt(1);
-            stbtt_GetCodepointHMetrics(fontInfo, c, advanceWidth, leftSideBearing);
-            float advance = advanceWidth.get(0) * scale;
-
             if (w == 0 || h == 0) {
-                // Character has no visual representation (space, etc.)
+                // Character has no visual representation but has bitmap data
                 stbtt_FreeBitmap(bitmap);
                 return new CharacterInfo(0, 0, 0, 0, w, h, xOff, yOff, advance);
             }
@@ -153,7 +156,8 @@ public class FontAtlas {
             // Free bitmap
             stbtt_FreeBitmap(bitmap);
 
-//            LOGGER.debug("Added character '{}' to atlas at ({}, {}) size {}x{}", c, currentX - w, currentY, w, h);
+            LOGGER.debug("Added character '{}' to atlas at ({}, {}) size {}x{}",
+                    c, currentX - w, currentY, w, h);
 
             return new CharacterInfo(u1, v1, u2, v2, w, h, xOff, yOff, advance);
         }

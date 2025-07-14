@@ -2,7 +2,6 @@ package com.sypztep.canval;
 
 import com.sypztep.canval.graphic.DrawContext;
 import com.sypztep.canval.init.Fonts;
-import com.sypztep.canval.init.Textures;
 import com.sypztep.canval.util.ResourceManager;
 import com.sypztep.canval.util.identifier.Registries;
 import org.slf4j.Logger;
@@ -26,6 +25,7 @@ public final class CanvalEngine {
 
     private long window;
     private final Canval canval = new Canval();
+    private final CanvalClient canvalClient = new CanvalClient();
     private DrawContext drawContext;
 
     public void run() {
@@ -195,9 +195,7 @@ public final class CanvalEngine {
      */
     private void render() {
         try {
-            drawContext.drawTexture(Textures.TEST_RGB.id(), 50, 50, 200, 200);
-            drawContext.drawText("สวัสดี World", 50, 600, 48.0f, CanvalConfig.getDefaultFont());
-
+            canvalClient.render(drawContext);
         } catch (Exception e) {
             LOGGER.error("Rendering error", e);
         }
