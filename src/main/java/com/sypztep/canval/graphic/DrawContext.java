@@ -1,460 +1,404 @@
 package com.sypztep.canval.graphic;
 
-import com.sypztep.canval.graphic.font.CharacterInfo;
-import com.sypztep.canval.graphic.font.FontAtlas;
-import com.sypztep.canval.graphic.font.FontAtlasManager;
+import com.sypztep.canval.graphic.font.TextRenderer;
+import com.sypztep.canval.graphic.gl.GlStateManager;
 import com.sypztep.canval.util.ResourceLocation;
-import com.sypztep.canval.util.identifier.Registries;
 import com.sypztep.canval.util.math.MatrixStack;
 import com.sypztep.canval.util.resource.FontResource;
-import com.sypztep.canval.util.resource.TextureResource;
-import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.FloatBuffer;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.system.MemoryUtil.memAllocFloat;
-import static org.lwjgl.system.MemoryUtil.memFree;
-
+/**
+ * High-level drawing context that provides easy-to-use drawing methods.
+ * This is the main API that users interact with for 2D rendering.
+ * No need to manage OpenGL state manually!
+ */
 public class DrawContext {
     private static final Logger LOGGER = LoggerFactory.getLogger(DrawContext.class);
 
-    private final int windowWidth;
-    private final int windowHeight;
-    private final MatrixStack matrices;
-    private boolean projectionSet = false;
-
-    private final FloatBuffer matrixBuffer = memAllocFloat(16);
-    private final Matrix4f lastAppliedMatrix = new Matrix4f();
-    private boolean matrixDirty = true;
-
-    private static class TextVertex {
-        float x, y, u, v;
-        TextVertex(float x, float y, float u, float v) {
-            this.x = x; this.y = y; this.u = u; this.v = v;
-        }
-    }
-
-    private final List<TextVertex> textVertices = new ArrayList<>();
-    private FontAtlas currentTextAtlas;
-
-    private static class TextureVertex {
-        float x, y, z, u, v;
-        TextureVertex(float x, float y, float z, float u, float v) {
-            this.x = x; this.y = y; this.z = z; this.u = u; this.v = v;
-        }
-    }
-
-    private final List<TextureVertex> textureVertices = new ArrayList<>();
-    private int currentTextureId = -1;
+    private final RenderSystem renderSystem;
+    private final TextRenderer textRenderer;
+    private long lastFrameTime = System.nanoTime();
+    private float deltaTime = 0.0f;
 
     public DrawContext(int windowWidth, int windowHeight) {
-        this.windowWidth = windowWidth;
-        this.windowHeight = windowHeight;
-        this.matrices = new MatrixStack();
+        // Initialize GL state manager for 2D rendering
+        GlStateManager.init2D(windowWidth, windowHeight);
+
+        this.renderSystem = new RenderSystem();
+        this.textRenderer = new TextRenderer();
+
         LOGGER.debug("DrawContext created: {}x{}", windowWidth, windowHeight);
     }
 
+    /**
+     * Get the matrix stack for transformations
+     */
     public MatrixStack getMatrix() {
-        return matrices;
+        return renderSystem.getMatrixStack();
     }
 
+    /**
+     * Begin a new frame
+     */
     public void beginFrame() {
-        if (!projectionSet) {
-            glMatrixMode(GL_PROJECTION);
-            glLoadIdentity();
-            glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
-            projectionSet = true;
-        }
-        matrixDirty = true;
+        // Calculate delta time
+        long currentTime = System.nanoTime();
+        deltaTime = (currentTime - lastFrameTime) / 1_000_000_000.0f;
+        lastFrameTime = currentTime;
+
+        renderSystem.beginFrame();
+        textRenderer.updateTypewriters(deltaTime);
     }
 
+    /**
+     * End the current frame
+     */
     public void endFrame() {
-        flushTextures();
-        projectionSet = false;
-        matrixDirty = true;
-    }
-
-    private void applyMatrixTransform() {
-        glMatrixMode(GL_MODELVIEW);
-        Matrix4f currentMatrix = matrices.peek().getPositionMatrix();
-
-        if (matrixDirty || !currentMatrix.equals(lastAppliedMatrix)) {
-            currentMatrix.get(matrixBuffer);
-            glLoadMatrixf(matrixBuffer);
-            lastAppliedMatrix.set(currentMatrix);
-            matrixDirty = false;
-        }
-    }
-
-    public void markMatrixDirty() {
-        matrixDirty = true;
+        renderSystem.endFrame();
     }
 
     /**
-     * Draws a textured rectangle from a region in a 256x256 texture.
-     * The Z coordinate of the rectangle is 0.
-     * The width and height of the region are the same as the dimensions of the rectangle.
+     * Get delta time in seconds
      */
-    public void drawTexture(ResourceLocation texture, int x, int y, int u, int v, int width, int height) {
-        // Use 256x256 as reference texture size (Minecraft default)
-        this.drawTexture(texture, x, y, 0, (float)u, (float)v, width, height, 256, 256);
+    public float getDeltaTime() {
+        return deltaTime;
+    }
+
+    // =================== TEXTURE DRAWING ===================
+
+    /**
+     * Draw a texture at specified position with original size
+     */
+    public void drawTexture(ResourceLocation texture, float x, float y) {
+        renderSystem.drawTexture(texture, x, y, 0, 0); // Will use original size
     }
 
     /**
-     * Draws a textured rectangle from a region in a texture.
-     * The width and height of the region are the same as the dimensions of the rectangle.
+     * Draw a texture at specified position and size
      */
-    public void drawTexture(ResourceLocation texture, int x, int y, int z, float u, float v, int width, int height, int textureWidth, int textureHeight) {
-        this.drawTexture(texture, x, x + width, y, y + height, z, width, height, u, v, textureWidth, textureHeight);
+    public void drawTexture(ResourceLocation texture, float x, float y, float width, float height) {
+        renderSystem.drawTexture(texture, x, y, width, height);
     }
 
     /**
-     * Draws a textured rectangle from a region in a texture.
+     * Draw a region from a texture (sprite sheet support)
      */
-    public void drawTexture(ResourceLocation texture, int x, int y, int width, int height, float u, float v, int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
-        this.drawTexture(texture, x, x + width, y, y + height, 0, regionWidth, regionHeight, u, v, textureWidth, textureHeight);
+    public void drawTextureRegion(ResourceLocation texture, float x, float y, float width, float height,
+                                  float u, float v, float regionWidth, float regionHeight) {
+        renderSystem.drawTextureRegion(texture, x, y, width, height, u, v, regionWidth, regionHeight, 256, 256);
     }
 
     /**
-     * Draws a textured rectangle from a region in a texture.
-     * The width and height of the region are the same as the dimensions of the rectangle.
+     * Draw a texture region with explicit texture dimensions
      */
-    public void drawTexture(ResourceLocation texture, int x, int y, float u, float v, int width, int height, int textureWidth, int textureHeight) {
-        this.drawTexture(texture, x, y, width, height, u, v, width, height, textureWidth, textureHeight);
+    public void drawTextureRegion(ResourceLocation texture, float x, float y, float width, float height,
+                                  float u, float v, float regionWidth, float regionHeight,
+                                  float textureWidth, float textureHeight) {
+        renderSystem.drawTextureRegion(texture, x, y, width, height, u, v, regionWidth, regionHeight, textureWidth, textureHeight);
+    }
+
+    // =================== SHAPE DRAWING ===================
+
+    /**
+     * Draw a colored rectangle
+     */
+    public void drawRect(float x, float y, float width, float height, float r, float g, float b, float a) {
+        renderSystem.drawRect(x, y, width, height, r, g, b, a);
     }
 
     /**
-     * Core texture drawing method - all other texture methods delegate to this
-     * This is where the textureWidth/textureHeight parameters are actually used
+     * Draw a rectangle with ARGB color (0xAARRGGBB format)
      */
-    void drawTexture(ResourceLocation texture, int x1, int x2, int y1, int y2, int z, int regionWidth, int regionHeight, float u, float v, int textureWidth, int textureHeight) {
-        // FIXED: Use the provided textureWidth/textureHeight parameters for UV calculation
-        this.drawTexturedQuad(
-                texture,
-                x1, x2, y1, y2, z,
-                (u + 0.0F) / (float)textureWidth,                    // u1
-                (u + (float)regionWidth) / (float)textureWidth,      // u2
-                (v + 0.0F) / (float)textureHeight,                   // v1
-                (v + (float)regionHeight) / (float)textureHeight     // v2
-        );
+    public void drawRect(float x, float y, float width, float height, int color) {
+        renderSystem.drawRect(x, y, width, height, color);
     }
 
     /**
-     * Convenience method to draw entire texture at specified size
-     * FIXED: Use actual texture dimensions when drawing the full texture
+     * Draw a white rectangle
      */
-    public void drawTexture(ResourceLocation texture, int x, int y, int width, int height) {
-        TextureResource textureResource;
-        try {
-            textureResource = Registries.TEXTURE.get(texture);
-        } catch (IllegalArgumentException e) {
-            LOGGER.warn("Texture not found: {}", texture);
-            return;
-        }
-
-        drawTexture(texture, x, y, width, height, 0, 0,
-                textureResource.width(), textureResource.height(),
-                textureResource.width(), textureResource.height());
+    public void drawWhiteRect(float x, float y, float width, float height) {
+        renderSystem.drawWhiteRect(x, y, width, height);
     }
 
     /**
-     * Convenience method to draw texture at original size
-     * FIXED: Use actual texture dimensions
+     * Draw a black rectangle
      */
-    public void drawTexture(ResourceLocation texture, int x, int y) {
-        TextureResource textureResource;
-        try {
-            textureResource = Registries.TEXTURE.get(texture);
-        } catch (IllegalArgumentException e) {
-            LOGGER.warn("Texture not found: {}", texture);
-            return;
-        }
-
-        // Draw at original size using actual dimensions
-        drawTexture(texture, x, y, textureResource.width(), textureResource.height());
+    public void drawBlackRect(float x, float y, float width, float height) {
+        renderSystem.drawBlackRect(x, y, width, height);
     }
 
     /**
-     * NEW: Method to draw texture region with explicit texture size reference
-     * This is useful for sprite sheets and GUI textures
+     * Draw a rectangle outline
      */
-    public void drawTextureRegion(ResourceLocation texture, int x, int y, int u, int v,
-                                  int regionWidth, int regionHeight, int textureWidth, int textureHeight) {
-        this.drawTexture(texture, x, y, regionWidth, regionHeight, u, v, regionWidth, regionHeight, textureWidth, textureHeight);
+    public void drawRectOutline(float x, float y, float width, float height, float lineWidth,
+                                float r, float g, float b, float a) {
+        renderSystem.drawRectOutline(x, y, width, height, lineWidth, r, g, b, a);
     }
 
     /**
-     * NEW: Method to draw scaled texture region
-     * Draws a region from texture but scales it to different display size
+     * Draw a rectangle outline with ARGB color
      */
-    public void drawScaledTextureRegion(ResourceLocation texture, int x, int y, int displayWidth, int displayHeight,
-                                        int u, int v, int regionWidth, int regionHeight,
-                                        int textureWidth, int textureHeight) {
-        this.drawTexture(texture, x, y, displayWidth, displayHeight, u, v, regionWidth, regionHeight, textureWidth, textureHeight);
+    public void drawRectOutline(float x, float y, float width, float height, float lineWidth, int color) {
+        float a = ((color >> 24) & 0xFF) / 255.0f;
+        float r = ((color >> 16) & 0xFF) / 255.0f;
+        float g = ((color >> 8) & 0xFF) / 255.0f;
+        float b = (color & 0xFF) / 255.0f;
+        drawRectOutline(x, y, width, height, lineWidth, r, g, b, a);
     }
+
+    // =================== TEXT DRAWING ===================
 
     /**
-     * Draws a textured quad with normalized UV coordinates
+     * Draw text with default white color
      */
-    private void drawTexturedQuad(ResourceLocation texture, int x1, int x2, int y1, int y2, int z, float u1, float u2, float v1, float v2) {
-        TextureResource textureResource;
-        try {
-            textureResource = Registries.TEXTURE.get(texture);
-        } catch (IllegalArgumentException e) {
-            LOGGER.warn("Texture not found: {}", texture);
-            return;
-        }
-
-        if (!textureResource.isBound()) {
-            LOGGER.warn("Texture not bound to OpenGL: {}", texture);
-            return;
-        }
-
-        int textureId = textureResource.glTextureId();
-        if (currentTextureId != textureId) {
-            flushTextures(); // Flush previous batch
-            currentTextureId = textureId;
-        }
-
-        // Add vertices to batch (creating a quad from two triangles)
-        float zf = (float)z;
-
-        // Triangle 1: top-left, top-right, bottom-left
-        textureVertices.add(new TextureVertex(x1, y1, zf, u1, v1)); // Top-left
-        textureVertices.add(new TextureVertex(x2, y1, zf, u2, v1)); // Top-right
-        textureVertices.add(new TextureVertex(x1, y2, zf, u1, v2)); // Bottom-left
-
-        // Triangle 2: top-right, bottom-right, bottom-left
-        textureVertices.add(new TextureVertex(x2, y1, zf, u2, v1)); // Top-right
-        textureVertices.add(new TextureVertex(x2, y2, zf, u2, v2)); // Bottom-right
-        textureVertices.add(new TextureVertex(x1, y2, zf, u1, v2)); // Bottom-left
-    }
-
-    /**
-     * Flush batched texture rendering
-     */
-    private void flushTextures() {
-        if (textureVertices.isEmpty() || currentTextureId == -1) {
-            return;
-        }
-
-        applyMatrixTransform();
-
-        // Enable texturing and blending
-        glEnable(GL_TEXTURE_2D);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        // Bind texture
-        glBindTexture(GL_TEXTURE_2D, currentTextureId);
-        glColor4f(1.0f, 1.0f, 1.0f, 1.0f); // White tint
-
-        // Render all vertices as triangles
-        glBegin(GL_TRIANGLES);
-        for (TextureVertex vertex : textureVertices) {
-            glTexCoord2f(vertex.u, vertex.v);
-            glVertex3f(vertex.x, vertex.y, vertex.z);
-        }
-        glEnd();
-
-        glDisable(GL_TEXTURE_2D);
-        glDisable(GL_BLEND);
-
-        // Clear batch
-        textureVertices.clear();
-        currentTextureId = -1;
-    }
-
     public void drawText(String text, float x, float y, float fontSize, FontResource font) {
-        drawText(text, x, y, fontSize, font, 1.0f, 1.0f, 1.0f, 1.0f);
+        textRenderer.drawText(getMatrix(), text, x, y, fontSize, font);
     }
 
-    public void drawText(String text, float x, float y, float fontSize, FontResource font, float r, float g, float b, float a) {
-        if (text == null || text.isEmpty()) return;
-
-        flushTextures();
-
-        applyMatrixTransform();
-
-        FontAtlas atlas = FontAtlasManager.getInstance().getAtlas(font, fontSize);
-
-        textVertices.clear();
-        currentTextAtlas = atlas;
-
-        float currentX = x;
-        float currentY = y + atlas.getAscent();
-
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-
-            if (c == '\n') {
-                currentX = x;
-                currentY += atlas.getLineHeight();
-                continue;
-            }
-
-            CharacterInfo charInfo = atlas.getCharacter(c);
-
-            if (charInfo.width() > 0 && charInfo.height() > 0) {
-                float x1 = currentX + charInfo.xOffset();
-                float y1 = currentY + charInfo.yOffset();
-                float x2 = x1 + charInfo.width();
-                float y2 = y1 + charInfo.height();
-
-                textVertices.add(new TextVertex(x1, y1, charInfo.u1(), charInfo.v1())); // Top-left
-                textVertices.add(new TextVertex(x2, y1, charInfo.u2(), charInfo.v1())); // Top-right
-                textVertices.add(new TextVertex(x2, y2, charInfo.u2(), charInfo.v2())); // Bottom-right
-                textVertices.add(new TextVertex(x1, y2, charInfo.u1(), charInfo.v2())); // Bottom-left
-            }
-
-            currentX += charInfo.advance();
-        }
-
-        renderBatchedText(r, g, b, a);
+    /**
+     * Draw text with custom color
+     */
+    public void drawText(String text, float x, float y, float fontSize, FontResource font,
+                         float r, float g, float b, float a) {
+        textRenderer.drawText(getMatrix(), text, x, y, fontSize, font, r, g, b, a);
     }
 
-    public void drawOneByOneText(String text, int visibleCharCount, float x, float y, float fontSize, FontResource font, float r, float g, float b, float a) {
-        if (text == null || text.isEmpty() || visibleCharCount <= 0) return;
-
-        // Flush any pending texture batches before drawing text
-        flushTextures();
-
-        applyMatrixTransform();
-
-        FontAtlas atlas = FontAtlasManager.getInstance().getAtlas(font, fontSize);
-
-        textVertices.clear();
-        currentTextAtlas = atlas;
-
-        float currentX = x;
-        float currentY = y + atlas.getAscent();
-        int charCount = 0;
-
-        for (int i = 0; i < text.length() && charCount < visibleCharCount; i++) {
-            char c = text.charAt(i);
-
-            if (c == '\n') {
-                currentX = x;
-                currentY += atlas.getLineHeight();
-                continue;
-            }
-
-            CharacterInfo charInfo = atlas.getCharacter(c);
-
-            if (charInfo.width() > 0 && charInfo.height() > 0) {
-                float x1 = currentX + charInfo.xOffset();
-                float y1 = currentY + charInfo.yOffset();
-                float x2 = x1 + charInfo.width();
-                float y2 = y1 + charInfo.height();
-
-                textVertices.add(new TextVertex(x1, y1, charInfo.u1(), charInfo.v1()));
-                textVertices.add(new TextVertex(x2, y1, charInfo.u2(), charInfo.v1()));
-                textVertices.add(new TextVertex(x2, y2, charInfo.u2(), charInfo.v2()));
-                textVertices.add(new TextVertex(x1, y2, charInfo.u1(), charInfo.v2()));
-            }
-
-            currentX += charInfo.advance();
-            charCount++;
-        }
-
-        renderBatchedText(r, g, b, a);
-    }
-
-    private void renderBatchedText(float r, float g, float b, float a) {
-        if (textVertices.isEmpty()) return;
-
-        // ONE texture bind for entire string
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_TEXTURE_2D);
-        glBindTexture(GL_TEXTURE_2D, currentTextAtlas.getAtlasTextureId());
-        glColor4f(r, g, b, a);
-
-        // ONE draw call for entire string
-        glBegin(GL_QUADS);
-        for (TextVertex vertex : textVertices) {
-            glTexCoord2f(vertex.u, vertex.v);
-            glVertex2f(vertex.x, vertex.y);
-        }
-        glEnd();
-
-        glDisable(GL_TEXTURE_2D);
-        glDisable(GL_BLEND);
-    }
-
-    public void drawCenteredText(String text, float fontSize, FontResource font) {
-        drawCenteredText(text, fontSize, font, 1.0f, 1.0f, 1.0f, 1.0f);
-    }
-
-    public void drawCenteredText(String text, float fontSize, FontResource font, float r, float g, float b, float a) {
-        if (text == null || text.isEmpty()) return;
-
-        float textWidth = getTextWidth(text, fontSize, font);
-        float x = (windowWidth - textWidth) / 2.0f;
-        float y = (windowHeight - fontSize) / 2.0f;
-
+    /**
+     * Draw text with ARGB color
+     */
+    public void drawText(String text, float x, float y, float fontSize, FontResource font, int color) {
+        float a = ((color >> 24) & 0xFF) / 255.0f;
+        float r = ((color >> 16) & 0xFF) / 255.0f;
+        float g = ((color >> 8) & 0xFF) / 255.0f;
+        float b = (color & 0xFF) / 255.0f;
         drawText(text, x, y, fontSize, font, r, g, b, a);
     }
 
-    private final Map<String, Float> textWidthCache = new HashMap<>();
+    /**
+     * Draw centered text
+     */
+    public void drawCenteredText(String text, float fontSize, FontResource font) {
+        textRenderer.drawCenteredText(getMatrix(), text, fontSize, font);
+    }
 
+    /**
+     * Draw centered text with custom color
+     */
+    public void drawCenteredText(String text, float fontSize, FontResource font, float r, float g, float b, float a) {
+        textRenderer.drawCenteredText(getMatrix(), text, fontSize, font, r, g, b, a);
+    }
+
+    /**
+     * Draw text with shadow
+     */
+    public void drawTextWithShadow(String text, float x, float y, float fontSize, FontResource font) {
+        textRenderer.drawTextWithShadow(getMatrix(), text, x, y, fontSize, font, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    /**
+     * Draw text with shadow and custom color
+     */
+    public void drawTextWithShadow(String text, float x, float y, float fontSize, FontResource font,
+                                   float r, float g, float b, float a) {
+        textRenderer.drawTextWithShadow(getMatrix(), text, x, y, fontSize, font, r, g, b, a);
+    }
+
+    /**
+     * Draw text with outline
+     */
+    public void drawTextWithOutline(String text, float x, float y, float fontSize, FontResource font,
+                                    float r, float g, float b, float a) {
+        textRenderer.drawTextWithOutline(getMatrix(), text, x, y, fontSize, font, r, g, b, a, 0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    /**
+     * Draw multi-line text
+     */
+    public void drawMultilineText(String text, float x, float y, float fontSize, FontResource font) {
+        textRenderer.drawMultilineText(getMatrix(), text, x, y, fontSize, font, 1.2f, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    /**
+     * Draw multi-line text with custom line spacing and color
+     */
+    public void drawMultilineText(String text, float x, float y, float fontSize, FontResource font,
+                                  float lineSpacing, float r, float g, float b, float a) {
+        textRenderer.drawMultilineText(getMatrix(), text, x, y, fontSize, font, lineSpacing, r, g, b, a);
+    }
+
+    /**
+     * Draw wrapped text (automatically breaks lines to fit width)
+     */
+    public void drawWrappedText(String text, float x, float y, float maxWidth, float fontSize, FontResource font) {
+        textRenderer.drawWrappedText(getMatrix(), text, x, y, maxWidth, fontSize, font, 1.2f, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    // =================== TYPEWRITER EFFECTS ===================
+
+    /**
+     * Start a typewriter effect
+     */
+    public void startTypewriter(String textId, String text, float charactersPerSecond) {
+        textRenderer.startTypewriter(textId, text, charactersPerSecond);
+    }
+
+    /**
+     * Start a typewriter effect with default speed (30 chars/sec)
+     */
+    public void startTypewriter(String textId, String text) {
+        startTypewriter(textId, text, 30.0f);
+    }
+
+    /**
+     * Draw typewriter text
+     */
+    public void drawTypewriterText(String textId, float x, float y, float fontSize, FontResource font) {
+        textRenderer.drawTypewriterText(getMatrix(), textId, x, y, fontSize, font);
+    }
+
+    /**
+     * Draw typewriter text with custom color
+     */
+    public void drawTypewriterText(String textId, float x, float y, float fontSize, FontResource font,
+                                   float r, float g, float b, float a) {
+        textRenderer.drawTypewriterText(getMatrix(), textId, x, y, fontSize, font, r, g, b, a);
+    }
+
+    /**
+     * Check if typewriter is completed
+     */
+    public boolean isTypewriterCompleted(String textId) {
+        return textRenderer.isTypewriterCompleted(textId);
+    }
+
+    /**
+     * Complete typewriter immediately
+     */
+    public void completeTypewriter(String textId) {
+        textRenderer.completeTypewriter(textId);
+    }
+
+    /**
+     * Reset typewriter
+     */
+    public void resetTypewriter(String textId) {
+        textRenderer.resetTypewriter(textId);
+    }
+
+    /**
+     * Get typewriter progress (0.0 to 1.0)
+     */
+    public float getTypewriterProgress(String textId) {
+        return textRenderer.getTypewriterProgress(textId);
+    }
+
+    // =================== TEXT MEASUREMENT ===================
+
+    /**
+     * Get text width
+     */
     public float getTextWidth(String text, float fontSize, FontResource font) {
-        if (text == null || text.isEmpty()) return 0;
-
-        String cacheKey = text + "_" + fontSize + "_" + font.id();
-        return textWidthCache.computeIfAbsent(cacheKey, k -> {
-            FontAtlas atlas = FontAtlasManager.getInstance().getAtlas(font, fontSize);
-            float width = 0;
-
-            for (int i = 0; i < text.length(); i++) {
-                char c = text.charAt(i);
-                if (c == '\n') break;
-
-                CharacterInfo charInfo = atlas.getCharacter(c);
-                width += charInfo.advance();
-            }
-
-            return width;
-        });
+        return textRenderer.getTextWidth(text, fontSize, font);
     }
 
-    public void drawRect(float x, float y, float width, float height, float r, float g, float b, float a) {
-        flushTextures();
-
-        applyMatrixTransform();
-
-        glDisable(GL_TEXTURE_2D);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glColor4f(r, g, b, a);
-
-        glBegin(GL_QUADS);
-        glVertex2f(x, y);
-        glVertex2f(x + width, y);
-        glVertex2f(x + width, y + height);
-        glVertex2f(x, y + height);
-        glEnd();
-
-        glDisable(GL_BLEND);
+    /**
+     * Get text height
+     */
+    public float getTextHeight(float fontSize, FontResource font) {
+        return textRenderer.getTextHeight(fontSize, font);
     }
 
+    // =================== TRANSFORMATIONS ===================
+
+    /**
+     * Push matrix (save current transform)
+     */
+    public void push() {
+        renderSystem.pushMatrix();
+    }
+
+    /**
+     * Pop matrix (restore previous transform)
+     */
+    public void pop() {
+        renderSystem.popMatrix();
+    }
+
+    /**
+     * Translate
+     */
+    public void translate(float x, float y) {
+        renderSystem.translate(x, y);
+    }
+
+    /**
+     * Scale
+     */
+    public void scale(float factor) {
+        renderSystem.scale(factor);
+    }
+
+    /**
+     * Scale with different X and Y factors
+     */
+    public void scale(float x, float y) {
+        renderSystem.scale(x, y, 1.0f);
+    }
+
+    /**
+     * Rotate around Z axis (2D rotation)
+     */
+    public void rotate(float angle) {
+        renderSystem.rotateZ(angle);
+    }
+
+    // =================== UTILITY METHODS ===================
+
+    /**
+     * Get screen width
+     */
+    public int getScreenWidth() {
+        return renderSystem.getScreenWidth();
+    }
+
+    /**
+     * Get screen height
+     */
+    public int getScreenHeight() {
+        return renderSystem.getScreenHeight();
+    }
+
+    /**
+     * Force flush all rendering batches
+     */
+    public void flush() {
+        renderSystem.flush();
+    }
+
+    /**
+     * Update viewport size (call when window is resized)
+     */
+    public void updateViewport(int width, int height) {
+        GlStateManager.updateViewport(width, height);
+    }
+
+    //TODO: Hardcode for Opacity
+    public void drawWithOpacity(float opacity, Runnable drawCode) {
+        push();
+        drawCode.run();
+        pop();
+    }
+
+    /**
+     * Cleanup resources
+     */
     public void cleanup() {
         LOGGER.info("Cleaning up DrawContext...");
 
-        // Flush any remaining batches
-        flushTextures();
-
-        FontAtlasManager.getInstance().cleanup();
-        textWidthCache.clear();
-
-        memFree(matrixBuffer);
+        textRenderer.clearCache();
+        textRenderer.clearTypewriters();
+        GlStateManager.cleanup();
 
         LOGGER.debug("DrawContext cleaned up successfully");
     }
