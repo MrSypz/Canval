@@ -4,6 +4,7 @@ import com.sypztep.canval.graphic.DrawContext;
 import com.sypztep.canval.init.Fonts;
 import com.sypztep.canval.util.ResourceManager;
 import com.sypztep.canval.util.identifier.Registries;
+import com.sypztep.canval.util.input.KeyBindings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.lwjgl.Version;
@@ -27,6 +28,10 @@ public final class CanvalEngine {
     private final Canval canval = new Canval();
     private final CanvalClient canvalClient = new CanvalClient();
     private DrawContext drawContext;
+
+    // Current window dimensions
+    private int currentWidth;
+    private int currentHeight;
 
     public void run() {
         LOGGER.info("Hello LWJGL {}!", Version.getVersion());
@@ -97,10 +102,14 @@ public final class CanvalEngine {
             glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
             glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
+            // Store initial dimensions
+            currentWidth = CanvalConfig.getDefaultWindowWidth();
+            currentHeight = CanvalConfig.getDefaultWindowHeight();
+
             // Create window
             window = glfwCreateWindow(
-                    CanvalConfig.getDefaultWindowWidth(),
-                    CanvalConfig.getDefaultWindowHeight(),
+                    currentWidth,
+                    currentHeight,
                     CanvalConfig.getDefaultWindowTitle(),
                     NULL, NULL
             );
@@ -108,10 +117,7 @@ public final class CanvalEngine {
             if (window == NULL) {
                 throw new RuntimeException("Failed to create the GLFW window");
             }
-            LOGGER.info("Window created: {}x{}",
-                    CanvalConfig.getDefaultWindowWidth(),
-                    CanvalConfig.getDefaultWindowHeight()
-            );
+            LOGGER.info("Window created: {}x{}", currentWidth, currentHeight);
 
             // Setup callbacks
             setupCallbacks();
@@ -146,15 +152,17 @@ public final class CanvalEngine {
         try {
             // Check OpenGL capabilities
             checkOpenGLCapabilities();
+
             // NOW bind resources to OpenGL
             canval.initializeOpenGL();
 
             // Create drawing context (needs OpenGL)
-            drawContext = new DrawContext(
-                    CanvalConfig.getDefaultWindowWidth(),
-                    CanvalConfig.getDefaultWindowHeight()
-            );
+            drawContext = new DrawContext(currentWidth, currentHeight);
             LOGGER.info("DrawContext initialized");
+
+            // Initialize key bindings
+            KeyBindings.init();
+            LOGGER.info("KeyBindings initialized");
 
             // Initialize any other OpenGL-dependent systems here
             // e.g., shader programs, render buffers, etc.
@@ -175,6 +183,9 @@ public final class CanvalEngine {
         LOGGER.info("Starting main loop");
 
         while (!glfwWindowShouldClose(window)) {
+            // Update key binding states
+//            KeyBindings.updatePressedStates(window);
+
             // Clear framebuffer
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -211,6 +222,7 @@ public final class CanvalEngine {
             drawContext.cleanup();
             ResourceManager.cleanup();
             Registries.cleanup();
+//            KeyBindings.cleanup();
             LOGGER.info("Resources cleaned up");
 
             if (window != NULL) {
@@ -233,13 +245,23 @@ public final class CanvalEngine {
     }
 
     private void setupCallbacks() {
+        // Key callback - now handled by KeyBinding system
         glfwSetKeyCallback(window, (window, key, scancode, action, mods) -> {
-            if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE) {
-                glfwSetWindowShouldClose(window, true);
-            }
+//            KeyBindings.onKey(key, scancode, action, mods);
         });
 
-        //TODO: Add more callbacks as needed (resize, mouse, etc.)
+        // Mouse button callback
+        glfwSetMouseButtonCallback(window, (window, button, action, mods) -> {
+//            KeyBindings.onMouseButton(button, action, mods);
+        });
+
+        // Window resize callback
+        glfwSetFramebufferSizeCallback(window, (window, width, height) -> drawContext.updateViewport(width, height));
+
+        // Window size callback (different from framebuffer)
+        glfwSetWindowSizeCallback(window, (window, width, height) -> drawContext.updateViewport(width, height));
+
+        LOGGER.debug("All GLFW callbacks set up");
     }
 
     private void centerWindow() {
@@ -276,5 +298,23 @@ public final class CanvalEngine {
 
         LOGGER.info("Resource Statistics:");
         LOGGER.info("  Fonts loaded: {}", fontCount);
+    }
+
+    /**
+     * Get current window dimensions
+     */
+    public int getCurrentWidth() {
+        return currentWidth;
+    }
+
+    public int getCurrentHeight() {
+        return currentHeight;
+    }
+
+    /**
+     * Get the window handle (for external use)
+     */
+    public long getWindow() {
+        return window;
     }
 }
