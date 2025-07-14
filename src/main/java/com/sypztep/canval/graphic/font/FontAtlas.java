@@ -111,8 +111,8 @@ public class FontAtlas {
             if (bitmap == null) {
                 // This is normal for whitespace characters (space, tab, etc.)
                 // They have advance width but no visual representation
-                LOGGER.debug("Character '{}' (code: {}) has no bitmap (likely whitespace)",
-                        c == ' ' ? "SPACE" : String.valueOf(c), (int)c);
+//                LOGGER.debug("Character '{}' (code: {}) has no bitmap (likely whitespace)",
+//                        c == ' ' ? "SPACE" : String.valueOf(c), (int)c);
                 return new CharacterInfo(0, 0, 0, 0, 0, 0, 0, 0, advance);
             }
 
@@ -156,8 +156,8 @@ public class FontAtlas {
             // Free bitmap
             stbtt_FreeBitmap(bitmap);
 
-            LOGGER.debug("Added character '{}' to atlas at ({}, {}) size {}x{}",
-                    c, currentX - w, currentY, w, h);
+//            LOGGER.debug("Added character '{}' to atlas at ({}, {}) size {}x{}",
+//                    c, currentX - w, currentY, w, h);
 
             return new CharacterInfo(u1, v1, u2, v2, w, h, xOff, yOff, advance);
         }
