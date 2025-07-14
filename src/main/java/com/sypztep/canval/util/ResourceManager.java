@@ -135,11 +135,10 @@ public final class ResourceManager {
             String resourcePath = ASSETS_PATH + "fonts/" + location.path();
 
             try (InputStream inputStream = ResourceManager.class.getResourceAsStream(resourcePath)) {
-                if (inputStream == null) {
+                if (inputStream == null)
                     throw new RuntimeException("Font resource not found: " + resourcePath);
-                }
 
-                System.out.println("Loading font: " + location.path());
+                LOGGER.info("Loading font resource: {}", resourcePath);
                 byte[] fontData = inputStream.readAllBytes();
 
                 ByteBuffer fontBuffer = MemoryUtil.memAlloc(fontData.length);
