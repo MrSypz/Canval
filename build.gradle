@@ -57,8 +57,15 @@ dependencies {
     implementation "org.lwjgl:lwjgl-opengl::$lwjglNatives"
     implementation "org.lwjgl:lwjgl-stb::$lwjglNatives"
 
-    implementation 'org.slf4j:slf4j-api:2.0.9'
-    implementation 'ch.qos.logback:logback-classic:1.5.13'  // Instead of slf4j-simple
+    // If you're using SLF4J elsewhere:
+    implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:2.20.0'
+
+// Core logging libraries
+    implementation 'org.apache.logging.log4j:log4j-api:2.20.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.20.0'
+
+// Optional: Jansi for better terminal colors on Windows
+    implementation 'org.fusesource.jansi:jansi:2.4.0'
 
     implementation 'org.joml:joml:1.10.5'
 
