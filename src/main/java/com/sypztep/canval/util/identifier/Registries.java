@@ -1,6 +1,5 @@
 package com.sypztep.canval.util.identifier;
 
-import com.sypztep.canval.util.ResourceLocation;
 import com.sypztep.canval.util.resource.FontResource;
 import com.sypztep.canval.util.resource.SoundResource;
 import com.sypztep.canval.util.resource.TextureResource;
