@@ -4,7 +4,7 @@ import com.sypztep.canval.graphic.DrawContext;
 import com.sypztep.canval.init.Fonts;
 import com.sypztep.canval.util.ResourceManager;
 import com.sypztep.canval.util.identifier.Registries;
-import com.sypztep.canval.util.input.KeyBindings;
+import com.sypztep.canval.init.KeyBindings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.lwjgl.Version;
@@ -184,7 +184,7 @@ public final class CanvalEngine {
 
         while (!glfwWindowShouldClose(window)) {
             // Update key binding states
-//            KeyBindings.updatePressedStates(window);
+            KeyBindings.updatePressedStates(window);
 
             // Clear framebuffer
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -222,7 +222,7 @@ public final class CanvalEngine {
             drawContext.cleanup();
             ResourceManager.cleanup();
             Registries.cleanup();
-//            KeyBindings.cleanup();
+            KeyBindings.cleanup();
             LOGGER.info("Resources cleaned up");
 
             if (window != NULL) {
@@ -247,21 +247,36 @@ public final class CanvalEngine {
     private void setupCallbacks() {
         // Key callback - now handled by KeyBinding system
         glfwSetKeyCallback(window, (window, key, scancode, action, mods) -> {
-//            KeyBindings.onKey(key, scancode, action, mods);
+            KeyBindings.onKey(key, scancode, action, mods);
+            handleEngineKeyBindings();
         });
 
         // Mouse button callback
         glfwSetMouseButtonCallback(window, (window, button, action, mods) -> {
-//            KeyBindings.onMouseButton(button, action, mods);
+            KeyBindings.onMouseButton(button, action, mods);
         });
 
         // Window resize callback
-        glfwSetFramebufferSizeCallback(window, (window, width, height) -> drawContext.updateViewport(width, height));
+        glfwSetFramebufferSizeCallback(window, (window, width, height) -> {
+            drawContext.updateViewport(width, height);
+        });
 
         // Window size callback (different from framebuffer)
-        glfwSetWindowSizeCallback(window, (window, width, height) -> drawContext.updateViewport(width, height));
+        glfwSetWindowSizeCallback(window, (window, width, height) -> {
+            drawContext.updateViewport(width, height);
+        });
 
         LOGGER.debug("All GLFW callbacks set up");
+    }
+
+    /**
+     * Handle engine-level key bindings that should be processed immediately
+     */
+    private void handleEngineKeyBindings() {
+        if (KeyBindings.QUIT.wasPressed()) {
+            LOGGER.info("Quit key binding activated - shutting down engine");
+            glfwSetWindowShouldClose(window, true);
+        }
     }
 
     private void centerWindow() {
